@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/time.h>
 //#include "bfs.h"
 /*
 typedef struct{
@@ -174,6 +175,10 @@ int fifo_curr_size(fifo* ff){
 /*Breadth First Search to expand for an AG*/
 int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, int *pacc, int cont_cnt, int outside_name, int docker_host_name, int max_num_ex, unsigned int *node_name, unsigned int *node_priv, unsigned int *edge_start, unsigned int *edge_end, unsigned int *node_cnt, unsigned int *edge_cnt){
     //printf("+++++ print from C +++++ %d %d %d %d %d %d\n", cont_cnt, outside_id, docker_host_id, max_num_ex, *node_cnt, *edge_cnt);
+
+    struct timeval c_start, c_end;
+    gettimeofday(&c_start, NULL);    
+
     /* data structure initialization starts here*/
     int *edge_label = (int *)malloc(sizeof(int)*2500000*100); //return this array to reduce memory op time
     for(int i=0; i<2500000; i++) edge_label[i*100]=0; //the first element for each edge's label row indicates how many labels that edge has, and is set 0 initially
@@ -372,8 +377,14 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
     free(rootAddr);
     free(addr);
     free(addr2);
+
+    gettimeofday(&c_end, NULL);    
+    double tdiff=(c_end.tv_sec-c_start.tv_sec)+(c_end.tv_usec-c_start.tv_usec)/1000000.0;
+
+
     printf(">>>>>> From C: Number of nodes in the AG is %d\n", (*node_cnt));
     printf(">>>>>> From C: Number of edges in the AG is %d\n", (*edge_cnt));
+    printf(">>>>>> From C: Expansion took %lf seconds\n", tdiff);
 
     return edge_label;
 }
