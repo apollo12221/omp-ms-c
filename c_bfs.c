@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <omp.h>
 //#include "bfs.h"
 /*
 typedef struct{
@@ -173,11 +174,15 @@ int fifo_curr_size(fifo* ff){
 
 
 /*Breadth First Search to expand for an AG*/
-int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, int *pacc, int cont_cnt, int outside_name, int docker_host_name, int max_num_ex, unsigned int *node_name, unsigned int *node_priv, unsigned int *edge_start, unsigned int *edge_end, unsigned int *node_cnt, unsigned int *edge_cnt){
+int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, int *pacc, int cont_cnt, int outside_name, int docker_host_name, int max_num_ex, unsigned int *node_name, unsigned int *node_priv, unsigned int *edge_start, unsigned int *edge_end, unsigned int *node_cnt, unsigned int *edge_cnt, int numThreads, int queueSize){
     //printf("+++++ print from C +++++ %d %d %d %d %d %d\n", cont_cnt, outside_id, docker_host_id, max_num_ex, *node_cnt, *edge_cnt);
 
     struct timeval c_start, c_end;
-    gettimeofday(&c_start, NULL);    
+    gettimeofday(&c_start, NULL);
+
+    for(int i=0; i<cont_cnt; i++){
+        if(i!=docker_host_name) topo[i*cont_cnt+i]=1;        
+    }    
 
     /* data structure initialization starts here*/
     int *edge_label = (int *)malloc(sizeof(int)*2500000*100); //return this array to reduce memory op time
@@ -208,13 +213,14 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
     /* data structure initialization ends here*/
 
     /*serial expansion starts here*/
-    while(fifo_curr_size(masterQueue)){//serial expansion while-loop
+    //while(fifo_curr_size(masterQueue)){//serial expansion while-loop
+    while(fifo_curr_size(masterQueue)<queueSize){//initial serial expansion
         unsigned int curr_node_id;
         fifo_read(masterQueue,&curr_node_id);
         unsigned int curr_node_name = node_name[curr_node_id];
         unsigned int curr_node_priv = node_priv[curr_node_id];
         //allows local exploit
-        if(curr_node_name != docker_host_name) topo[curr_node_name*cont_cnt+curr_node_name]=1;
+        //if(curr_node_name != docker_host_name) topo[curr_node_name*cont_cnt+curr_node_name]=1;
         //unsigned int *addr;
         for(int ncnt=0; ncnt<cont_cnt; ncnt++){//check each neighbor, ncnt is neighbor name value
             if(topo[curr_node_name*cont_cnt+ncnt]==1){//must be a connected neighbor
@@ -370,14 +376,323 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
         }//check each neighbor
     }//serial expansion while-loop   
     /*Serial expansion ends here*/
-    free(masterQueue);
-    free(nodeTable);
-    free(edgeTable);
-    free(edgeDirTable);
     free(rootAddr);
     free(addr);
     free(addr2);
 
+/*Parallel expansion starts here*/
+
+    omp_lock_t *nLock = (omp_lock_t *)malloc(sizeof(omp_lock_t));
+    omp_init_lock(nLock); //define a lock for OpenMP threads to write to shared data structures    
+
+    omp_lock_t *eLock = (omp_lock_t *)malloc(sizeof(omp_lock_t));
+    omp_init_lock(eLock); //define a lock for OpenMP threads to write to shared data structures    
+
+
+    omp_lock_t *nodeLock = (omp_lock_t *)malloc(sizeof(omp_lock_t));
+    omp_init_lock(nodeLock); //define a lock for OpenMP threads to write to shared data structures    
+
+    omp_lock_t *edgeLock = (omp_lock_t *)malloc(sizeof(omp_lock_t));
+    omp_init_lock(edgeLock); //define a lock for OpenMP threads to write to shared data structures    
+
+    omp_lock_t *edgeDirLock = (omp_lock_t *)malloc(sizeof(omp_lock_t));
+    omp_init_lock(edgeDirLock); //define a lock for OpenMP threads to write to shared data structures    
+    omp_lock_t *labelLock = (omp_lock_t *)malloc(sizeof(omp_lock_t));
+    omp_init_lock(labelLock); //define a lock for OpenMP threads to write to shared data structures
+
+
+    omp_lock_t *threadLocks = (omp_lock_t *)malloc(numThreads*sizeof(omp_lock_t));
+    for(int i=0; i<numThreads; i++) omp_init_lock(&threadLocks[i]);
+
+    #pragma omp parallel num_threads(numThreads) default(none) shared(nLock, eLock, nodeLock, edgeLock, edgeDirLock, labelLock, threadLocks, edge_label, masterQueue, nodeTable, edgeTable, edgeDirTable, topo, num_ex, ex_names, pre_priv, post_priv, pacc, cont_cnt, outside_name, docker_host_name, max_num_ex, node_name, node_priv, edge_start, edge_end, node_cnt, edge_cnt, numThreads, queueSize)
+    {//OpenMP starts
+        //set local environment and initialize local workload
+        int threadID = omp_get_thread_num();
+        omp_lock_t *myLock = &threadLocks[threadID];
+        unsigned int *addr = (unsigned int *)malloc(sizeof(unsigned int));
+        unsigned int *addr2 = (unsigned int *)malloc(sizeof(unsigned int)); 
+        fifo *localQueue = (fifo *)malloc(sizeof(fifo)); //define a FIFO for unexpanded nodes
+        fifo_init(localQueue);
+        for(int fcnt=threadID; fcnt<fifo_curr_size(masterQueue); fcnt+=numThreads){
+            unsigned int initID;
+            fifo_idx_read(masterQueue, fcnt, &initID);
+            omp_set_lock(myLock);
+            fifo_write(localQueue, initID);
+            omp_unset_lock(myLock);
+        }
+        
+        //local expansion starts
+        unsigned int curr_node_id;
+        unsigned int curr_node_name;
+        unsigned int curr_node_priv;
+
+        expanding_loop:
+
+        omp_set_lock(myLock);
+        fifo_read(localQueue,&curr_node_id);
+        omp_unset_lock(myLock);
+        curr_node_name = node_name[curr_node_id];
+        curr_node_priv = node_priv[curr_node_id];
+        //allows local exploit
+        //if(curr_node_name != docker_host_name) topo[curr_node_name*cont_cnt+curr_node_name]=1;
+        //unsigned int *addr;
+        for(int ncnt=0; ncnt<cont_cnt; ncnt++){//check each neighbor, ncnt is neighbor name value
+            if(topo[curr_node_name*cont_cnt+ncnt]==1){//must be a connected neighbor
+                omp_set_lock(nodeLock);
+                if(curr_node_name == docker_host_name && nodeHashing(nodeEncoding(ncnt,4),nodeTable,addr)==1){//case 1
+                    omp_unset_lock(nodeLock);
+                    //unsigned int *addr2;
+                    omp_set_lock(edgeDirLock);
+                    int reversed = nodeHashing(edgeDirEncoding(ncnt,curr_node_name,4),edgeDirTable,addr2);
+                    if(reversed){
+                        omp_unset_lock(edgeDirLock);                       
+                        continue;
+                    }
+                    else{//update edge direction table
+                        unsigned int curr_edge_dir_val = edgeDirEncoding(curr_node_name,ncnt,4);
+                        nodeHashing(curr_edge_dir_val,edgeDirTable,addr2);
+                        edgeDirTable[*addr2].hashNum=curr_edge_dir_val;//works for both hit and miss
+                        omp_unset_lock(edgeDirLock);
+                    }
+                    
+                    unsigned int nvalue = nodeEncoding(ncnt,4);
+                    unsigned int newNodeID;
+                    omp_set_lock(nodeLock);
+                    if(nodeHashing(nvalue,nodeTable,addr)==0){
+                        omp_unset_lock(nodeLock);
+                        omp_set_lock(nLock);
+                        newNodeID = ++(*node_cnt);
+                        omp_unset_lock(nLock);
+                        omp_set_lock(nodeLock);
+                        nodeTable[*addr].hashNum=nvalue;// update node hashtable
+                        nodeTable[*addr].ID=newNodeID;
+                        omp_unset_lock(nodeLock);
+                        node_name[newNodeID]=ncnt;
+                        node_priv[newNodeID]=4;
+                        omp_set_lock(myLock);
+                        fifo_write(localQueue, newNodeID);//?
+                        omp_unset_lock(myLock);
+                    }
+                    else{
+                        omp_unset_lock(nodeLock);
+                        newNodeID = nodeTable[*addr].ID;
+                    }
+                    unsigned int curr_edge_val = edgeEncoding(curr_node_id, newNodeID);
+                    omp_set_lock(edgeLock);
+                    if(nodeHashing(curr_edge_val, edgeTable, addr2)==0){
+                        omp_unset_lock(edgeLock);
+                        omp_set_lock(eLock);
+                        unsigned int newEdgeID = ++(*edge_cnt);
+                        omp_unset_lock(eLock);
+                        omp_set_lock(edgeLock);
+                        edgeTable[*addr2].hashNum = curr_edge_val;
+                        edgeTable[*addr2].ID = newEdgeID;
+                        omp_unset_lock(edgeLock);
+                        edge_start[newEdgeID]=curr_node_id;
+                        edge_end[newEdgeID]=newNodeID;
+                        int *edge_label_cnt = &(edge_label[newEdgeID*100]);
+                        int *edge_label_row = &(edge_label[newEdgeID*100+1]);
+                        omp_set_lock(labelLock); 
+                        if((*edge_label_cnt)<99){
+                            edge_label_row[*edge_label_cnt]=-1; //-1 represents root access due to docker host being compromised
+                            (*edge_label_cnt)++;
+                        }
+                        omp_unset_lock(labelLock);
+                    }
+                    else{
+                        omp_unset_lock(edgeLock);
+                        unsigned int existing_edge_id = edgeTable[*addr2].ID;
+                        int *edge_label_cnt = &(edge_label[existing_edge_id*100]);
+                        int *edge_label_row = &(edge_label[existing_edge_id*100+1]);
+                        omp_set_lock(labelLock);
+                        if((*edge_label_cnt)<99){
+                            edge_label_row[*edge_label_cnt]=-1; //-1 represents root access due to docker host being compromised
+                            (*edge_label_cnt)++;
+                        }
+                        omp_unset_lock(labelLock);
+                    }
+                }//case 1
+                else if(ncnt == docker_host_name && pacc[curr_node_name]==1){//case 2
+                    //unsigned int *addr2;
+                    omp_unset_lock(nodeLock);
+                    omp_set_lock(edgeDirLock);
+                    int reversed = nodeHashing(edgeDirEncoding(ncnt,curr_node_name,curr_node_priv),edgeDirTable,addr2);
+                    if(reversed){
+                        omp_unset_lock(edgeDirLock);
+                        continue;
+                    }
+                    else{//update edge direction table
+                        unsigned int curr_edge_dir_val = edgeDirEncoding(curr_node_name,ncnt,4);
+                        nodeHashing(curr_edge_dir_val,edgeDirTable,addr2);
+                        edgeDirTable[*addr2].hashNum=curr_edge_dir_val;
+                        omp_unset_lock(edgeDirLock);
+                    }
+                   
+                    unsigned int nvalue = nodeEncoding(ncnt,4);
+                    unsigned int newNodeID;
+                    omp_set_lock(nodeLock);
+                    if(nodeHashing(nvalue, nodeTable, addr)==0){
+                        omp_unset_lock(nodeLock);
+                        omp_set_lock(nLock);
+                        newNodeID = ++(*node_cnt); 
+                        omp_unset_lock(nLock);
+                        omp_set_lock(nodeLock);
+                        nodeTable[*addr].hashNum=nvalue;// update node hashtable
+                        nodeTable[*addr].ID=newNodeID;
+                        omp_unset_lock(nodeLock);
+                        node_name[newNodeID]=ncnt;
+                        node_priv[newNodeID]=4;
+                        omp_set_lock(myLock);
+                        fifo_write(localQueue, newNodeID);
+                        omp_unset_lock(myLock);
+                    }
+                    else{
+                        omp_unset_lock(nodeLock);
+                        newNodeID = nodeTable[*addr].ID;
+                    }                      
+                    unsigned int curr_edge_val = edgeEncoding(curr_node_id, newNodeID);
+                    omp_set_lock(edgeLock);
+                    if(nodeHashing(curr_edge_val, edgeTable, addr2)==0){
+                        omp_unset_lock(edgeLock);
+                        omp_set_lock(eLock);
+                        unsigned int newEdgeID = ++(*edge_cnt);
+                        omp_unset_lock(eLock);
+                        omp_set_lock(edgeLock);
+                        edgeTable[*addr2].hashNum = curr_edge_val;
+                        edgeTable[*addr2].ID = newEdgeID;
+                        omp_unset_lock(edgeLock);
+                        edge_start[newEdgeID]=curr_node_id;
+                        edge_end[newEdgeID]=newNodeID;
+                        int *edge_label_cnt = &(edge_label[newEdgeID*100]);
+                        int *edge_label_row = &(edge_label[newEdgeID*100+1]);
+                        omp_set_lock(labelLock);
+                        if((*edge_label_cnt)<99){
+                            edge_label_row[*edge_label_cnt]=-2; //-2 represents priviledged access to compromise docker host
+                            (*edge_label_cnt)++;
+                        }
+                        omp_unset_lock(labelLock);
+                    }
+                    else{
+                        omp_unset_lock(edgeLock);
+                        unsigned int existing_edge_id = edgeTable[*addr2].ID;
+                        int *edge_label_cnt = &(edge_label[existing_edge_id*100]);
+                        int *edge_label_row = &(edge_label[existing_edge_id*100+1]);
+                        omp_set_lock(labelLock);
+                        if((*edge_label_cnt)<99){
+                            edge_label_row[*edge_label_cnt]=-2; //-2 represents priviledged access to compromise docker host
+                            (*edge_label_cnt)++;
+                        }
+                        omp_unset_lock(labelLock); 
+                    }                                       
+                }//case 2
+                else if(ncnt != outside_name && ncnt != docker_host_name){//case 3
+                    omp_unset_lock(nodeLock);
+                    for(int ecnt=0; ecnt<num_ex[ncnt]; ecnt++){//check each exploit on the neighbor
+                        int ex_idx = ncnt*max_num_ex + ecnt;
+                        if(curr_node_priv >= pre_priv[ex_idx] && ((ncnt!=curr_node_name && post_priv[ex_idx]!=0)||(ncnt==curr_node_name && curr_node_priv<post_priv[ex_idx]))){//priv escalation
+
+                            //unsigned int *addr2;
+                            omp_set_lock(edgeDirLock);
+                            int reversed = nodeHashing(edgeDirEncoding(ncnt,curr_node_name,curr_node_priv),edgeDirTable,addr2);
+                            if(reversed){
+                                omp_unset_lock(edgeDirLock);
+                                continue;
+                            }
+                            else{//update edge direction table
+                                unsigned int curr_edge_dir_val = edgeDirEncoding(curr_node_name,ncnt,post_priv[ex_idx]);
+                                nodeHashing(curr_edge_dir_val,edgeDirTable,addr2);
+                                edgeDirTable[*addr2].hashNum=curr_edge_dir_val;
+                                omp_unset_lock(edgeDirLock);
+                            }
+                   
+                            unsigned int nvalue = nodeEncoding(ncnt,post_priv[ex_idx]);
+                            unsigned int newNodeID;
+                            omp_set_lock(nodeLock);
+                            if(nodeHashing(nvalue, nodeTable, addr)==0){
+                                omp_unset_lock(nodeLock);
+                                omp_set_lock(nLock);
+                                newNodeID = ++(*node_cnt);
+                                omp_unset_lock(nLock);
+                                omp_set_lock(nodeLock);
+                                nodeTable[*addr].hashNum=nvalue;// update node hashtable
+                                nodeTable[*addr].ID=newNodeID;
+                                omp_unset_lock(nodeLock);
+                                node_name[newNodeID]=ncnt;
+                                node_priv[newNodeID]=post_priv[ex_idx];
+                                omp_set_lock(myLock);
+                                fifo_write(localQueue, newNodeID);
+                                omp_unset_lock(myLock);
+                            }
+                            else{
+                                omp_unset_lock(nodeLock);
+                                newNodeID = nodeTable[*addr].ID;
+                            }                      
+                            unsigned int curr_edge_val = edgeEncoding(curr_node_id, newNodeID);
+                            omp_set_lock(edgeLock);
+                            if(nodeHashing(curr_edge_val, edgeTable, addr2)==0){
+                                omp_unset_lock(edgeLock);
+                                omp_set_lock(eLock);
+                                unsigned int newEdgeID = ++(*edge_cnt);
+                                omp_unset_lock(eLock);
+                                omp_set_lock(edgeLock);
+                                edgeTable[*addr2].hashNum = curr_edge_val;
+                                edgeTable[*addr2].ID = newEdgeID;
+                                omp_unset_lock(edgeLock);
+                                edge_start[newEdgeID]=curr_node_id;
+                                edge_end[newEdgeID]=newNodeID;
+                                int *edge_label_cnt = &(edge_label[newEdgeID*100]);
+                                int *edge_label_row = &(edge_label[newEdgeID*100+1]);
+                                omp_set_lock(labelLock);
+                                if((*edge_label_cnt)<99){
+                                    edge_label_row[*edge_label_cnt]=ex_names[ex_idx]; //store the exploit name value
+                                    (*edge_label_cnt)++;
+                                }
+                                omp_unset_lock(labelLock);
+                            }
+                            else{
+                                omp_unset_lock(edgeLock);
+                                unsigned int existing_edge_id = edgeTable[*addr2].ID;
+                                int *edge_label_cnt = &(edge_label[existing_edge_id*100]);
+                                int *edge_label_row = &(edge_label[existing_edge_id*100+1]);
+                                omp_set_lock(labelLock);
+                                if((*edge_label_cnt)<99){
+                                    edge_label_row[*edge_label_cnt]=ex_names[ex_idx]; //store the exploit name value
+                                    (*edge_label_cnt)++;
+                                }
+                                omp_unset_lock(labelLock);
+                            }
+                        }//priv escalation
+                    }//check each exploit on the neighbor                      
+                }//case 3
+            }//must be a connected neighbor
+        }//check each neighbor
+        
+        omp_set_lock(myLock);
+        if(fifo_curr_size(localQueue)){
+            omp_unset_lock(myLock);
+            goto expanding_loop;
+        }
+        else{
+            omp_unset_lock(myLock);
+        }
+
+        free(localQueue);
+        free(addr);
+        free(addr2);        
+    }//OpenMP ends 
+   
+
+    free(masterQueue);
+    free(nodeTable);
+    free(edgeTable);
+    free(edgeDirTable);
+    free(nodeLock);
+    free(edgeLock);
+    free(edgeDirLock);
+    free(nLock);
+    free(eLock);
+    free(labelLock);
+    free(threadLocks);
     gettimeofday(&c_end, NULL);    
     double tdiff=(c_end.tv_sec-c_start.tv_sec)+(c_end.tv_usec-c_start.tv_usec)/1000000.0;
 
