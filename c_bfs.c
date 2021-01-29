@@ -180,6 +180,8 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
     struct timeval c_start, c_end;
     gettimeofday(&c_start, NULL);
 
+    printf("\n\n>>>>>> From C: serial execution starts ...\n");
+    
     for(int i=0; i<cont_cnt; i++){
         if(i!=docker_host_name) topo[i*cont_cnt+i]=1;        
     }    
@@ -379,6 +381,20 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
     free(rootAddr);
     free(addr);
     free(addr2);
+    
+    struct timeval c_middle;
+    gettimeofday(&c_middle, NULL);
+    double tSerial=(c_middle.tv_sec-c_start.tv_sec)+(c_middle.tv_usec-c_start.tv_usec)/1000000.0;
+    
+
+    printf(">>>>>> From C: serial execution done!!!\n");
+    printf(">>>>>> Serial execution took %lf seconds\n", tSerial);
+    printf(">>>>>> Serial excution expanded %d nodes\n", (*node_cnt)-fifo_curr_size(masterQueue));
+    printf("\n");
+    printf(">>>>>> From C: parallel execution starts ...\n");
+    printf(">>>>>> master thread queue size: preset %d, actual %d\n", queueSize, fifo_curr_size(masterQueue));
+    printf(">>>>>> Number of OpenMP threads is %d\n", numThreads);
+
 
 /*Parallel expansion starts here*/
 
@@ -404,11 +420,15 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
     omp_lock_t *threadLocks = (omp_lock_t *)malloc(numThreads*sizeof(omp_lock_t));
     for(int i=0; i<numThreads; i++) omp_init_lock(&threadLocks[i]);
 
-    #pragma omp parallel num_threads(numThreads) default(none) shared(nLock, eLock, nodeLock, edgeLock, edgeDirLock, labelLock, threadLocks, edge_label, masterQueue, nodeTable, edgeTable, edgeDirTable, topo, num_ex, ex_names, pre_priv, post_priv, pacc, cont_cnt, outside_name, docker_host_name, max_num_ex, node_name, node_priv, edge_start, edge_end, node_cnt, edge_cnt, numThreads, queueSize)
+    int *numExpansions = (int *)malloc(sizeof(int)*numThreads);
+    for(int i=0; i<numThreads; i++) numExpansions[i]=0;
+
+    #pragma omp parallel num_threads(numThreads) default(none) shared(nLock, eLock, nodeLock, edgeLock, edgeDirLock, labelLock, threadLocks, edge_label, masterQueue, nodeTable, edgeTable, edgeDirTable, topo, num_ex, ex_names, pre_priv, post_priv, pacc, cont_cnt, outside_name, docker_host_name, max_num_ex, node_name, node_priv, edge_start, edge_end, node_cnt, edge_cnt, numThreads, queueSize, numExpansions)
     {//OpenMP starts
         //set local environment and initialize local workload
         int threadID = omp_get_thread_num();
         omp_lock_t *myLock = &threadLocks[threadID];
+        int *myCnt = &numExpansions[threadID]; 
         unsigned int *addr = (unsigned int *)malloc(sizeof(unsigned int));
         unsigned int *addr2 = (unsigned int *)malloc(sizeof(unsigned int)); 
         fifo *localQueue = (fifo *)malloc(sizeof(fifo)); //define a FIFO for unexpanded nodes
@@ -431,6 +451,8 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
         omp_set_lock(myLock);
         fifo_read(localQueue,&curr_node_id);
         omp_unset_lock(myLock);
+        (*myCnt)++;
+        //if(curr_node_id%20==0) printf(">>>>>> Thread %d expands node %d\n", threadID, curr_node_id);
         curr_node_name = node_name[curr_node_id];
         curr_node_priv = node_priv[curr_node_id];
         //allows local exploit
@@ -664,6 +686,9 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
                         }//priv escalation
                     }//check each exploit on the neighbor                      
                 }//case 3
+                else{//case 4, trivial, only to release nodeLock
+                    omp_unset_lock(nodeLock);
+                }//case 4
             }//must be a connected neighbor
         }//check each neighbor
         
@@ -681,6 +706,10 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
         free(addr2);        
     }//OpenMP ends 
    
+    printf("\n>>>>>> From C: parallel execution done!!!\n");
+    for(int i=0; i<numThreads; i++){
+        printf(">>>>>> Thread %d expaned %d nodes\n", i, numExpansions[i]);
+    }
 
     free(masterQueue);
     free(nodeTable);
@@ -693,13 +722,17 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
     free(eLock);
     free(labelLock);
     free(threadLocks);
-    gettimeofday(&c_end, NULL);    
+    free(numExpansions);   
+
+    gettimeofday(&c_end, NULL);
+    double tParallel=(c_end.tv_sec-c_middle.tv_sec)+(c_end.tv_usec-c_middle.tv_usec)/1000000.0;
     double tdiff=(c_end.tv_sec-c_start.tv_sec)+(c_end.tv_usec-c_start.tv_usec)/1000000.0;
+    printf(">>>>>> Parallel execution took %lf seconds\n", tParallel);
 
-
+    printf("\n");
     printf(">>>>>> From C: Number of nodes in the AG is %d\n", (*node_cnt));
     printf(">>>>>> From C: Number of edges in the AG is %d\n", (*edge_cnt));
-    printf(">>>>>> From C: Expansion took %lf seconds\n", tdiff);
-
+    printf(">>>>>> From C: Total Expansion Time: %lf seconds\n", tdiff);
+    printf("\n\n");
     return edge_label;
 }
