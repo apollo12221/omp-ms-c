@@ -420,10 +420,13 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
     omp_lock_t *threadLocks = (omp_lock_t *)malloc(numThreads*sizeof(omp_lock_t));
     for(int i=0; i<numThreads; i++) omp_init_lock(&threadLocks[i]);
 
+    fifo *threadQueues = (fifo *)malloc(numThreads*sizeof(fifo));
+    for(int i=0; i<numThreads; i++) fifo_init(&threadQueues[i]);
+ 
     int *numExpansions = (int *)malloc(sizeof(int)*numThreads);
     for(int i=0; i<numThreads; i++) numExpansions[i]=0;
 
-    #pragma omp parallel num_threads(numThreads) default(none) shared(nLock, eLock, nodeLock, edgeLock, edgeDirLock, labelLock, threadLocks, edge_label, masterQueue, nodeTable, edgeTable, edgeDirTable, topo, num_ex, ex_names, pre_priv, post_priv, pacc, cont_cnt, outside_name, docker_host_name, max_num_ex, node_name, node_priv, edge_start, edge_end, node_cnt, edge_cnt, numThreads, queueSize, numExpansions)
+    #pragma omp parallel num_threads(numThreads) default(none) shared(nLock, eLock, nodeLock, edgeLock, edgeDirLock, labelLock, threadLocks, edge_label, masterQueue, nodeTable, edgeTable, edgeDirTable, topo, num_ex, ex_names, pre_priv, post_priv, pacc, cont_cnt, outside_name, docker_host_name, max_num_ex, node_name, node_priv, edge_start, edge_end, node_cnt, edge_cnt, numThreads, queueSize, numExpansions, threadQueues)
     {//OpenMP starts
         //set local environment and initialize local workload
         int threadID = omp_get_thread_num();
@@ -431,8 +434,9 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
         int *myCnt = &numExpansions[threadID]; 
         unsigned int *addr = (unsigned int *)malloc(sizeof(unsigned int));
         unsigned int *addr2 = (unsigned int *)malloc(sizeof(unsigned int)); 
-        fifo *localQueue = (fifo *)malloc(sizeof(fifo)); //define a FIFO for unexpanded nodes
-        fifo_init(localQueue);
+        //fifo *localQueue = (fifo *)malloc(sizeof(fifo)); //define a FIFO for unexpanded nodes
+        //fifo_init(localQueue);
+        fifo *localQueue = &threadQueues[threadID];
         for(int fcnt=threadID; fcnt<fifo_curr_size(masterQueue); fcnt+=numThreads){
             unsigned int initID;
             fifo_idx_read(masterQueue, fcnt, &initID);
@@ -446,11 +450,11 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
         unsigned int curr_node_name;
         unsigned int curr_node_priv;
 
-        expanding_loop:
+        expanding_loop:;
 
-        omp_set_lock(myLock);
+        //omp_set_lock(myLock);
         fifo_read(localQueue,&curr_node_id);
-        omp_unset_lock(myLock);
+        //omp_unset_lock(myLock);
         (*myCnt)++;
         //if(curr_node_id%20==0) printf(">>>>>> Thread %d expands node %d\n", threadID, curr_node_id);
         curr_node_name = node_name[curr_node_id];
@@ -631,58 +635,60 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
                             unsigned int newNodeID;
                             omp_set_lock(nodeLock);
                             if(nodeHashing(nvalue, nodeTable, addr)==0){
-                                omp_unset_lock(nodeLock);
-                                omp_set_lock(nLock);
+                                //omp_unset_lock(nodeLock);
+                                //omp_set_lock(nLock);
                                 newNodeID = ++(*node_cnt);
-                                omp_unset_lock(nLock);
-                                omp_set_lock(nodeLock);
+                                //omp_unset_lock(nLock);
+                                //omp_set_lock(nodeLock);
                                 nodeTable[*addr].hashNum=nvalue;// update node hashtable
                                 nodeTable[*addr].ID=newNodeID;
                                 omp_unset_lock(nodeLock);
                                 node_name[newNodeID]=ncnt;
                                 node_priv[newNodeID]=post_priv[ex_idx];
-                                omp_set_lock(myLock);
+                                //omp_set_lock(myLock);
                                 fifo_write(localQueue, newNodeID);
-                                omp_unset_lock(myLock);
+                                //omp_unset_lock(myLock);
                             }
                             else{
                                 omp_unset_lock(nodeLock);
                                 newNodeID = nodeTable[*addr].ID;
-                            }                      
+                            }
+                            //omp_unset_lock(nodeLock);                      
                             unsigned int curr_edge_val = edgeEncoding(curr_node_id, newNodeID);
                             omp_set_lock(edgeLock);
                             if(nodeHashing(curr_edge_val, edgeTable, addr2)==0){
-                                omp_unset_lock(edgeLock);
-                                omp_set_lock(eLock);
+                                //omp_unset_lock(edgeLock);
+                                //omp_set_lock(eLock);
                                 unsigned int newEdgeID = ++(*edge_cnt);
-                                omp_unset_lock(eLock);
-                                omp_set_lock(edgeLock);
+                                //omp_unset_lock(eLock);
+                                //omp_set_lock(edgeLock);
                                 edgeTable[*addr2].hashNum = curr_edge_val;
                                 edgeTable[*addr2].ID = newEdgeID;
-                                omp_unset_lock(edgeLock);
+                                //omp_unset_lock(edgeLock);
                                 edge_start[newEdgeID]=curr_node_id;
                                 edge_end[newEdgeID]=newNodeID;
                                 int *edge_label_cnt = &(edge_label[newEdgeID*100]);
                                 int *edge_label_row = &(edge_label[newEdgeID*100+1]);
-                                omp_set_lock(labelLock);
+                                //omp_set_lock(labelLock);
                                 if((*edge_label_cnt)<99){
                                     edge_label_row[*edge_label_cnt]=ex_names[ex_idx]; //store the exploit name value
                                     (*edge_label_cnt)++;
                                 }
-                                omp_unset_lock(labelLock);
+                                //omp_unset_lock(labelLock);
                             }
                             else{
-                                omp_unset_lock(edgeLock);
+                                //omp_unset_lock(edgeLock);
                                 unsigned int existing_edge_id = edgeTable[*addr2].ID;
                                 int *edge_label_cnt = &(edge_label[existing_edge_id*100]);
                                 int *edge_label_row = &(edge_label[existing_edge_id*100+1]);
-                                omp_set_lock(labelLock);
+                                //omp_set_lock(labelLock);
                                 if((*edge_label_cnt)<99){
                                     edge_label_row[*edge_label_cnt]=ex_names[ex_idx]; //store the exploit name value
                                     (*edge_label_cnt)++;
                                 }
-                                omp_unset_lock(labelLock);
+                                //omp_unset_lock(labelLock);
                             }
+                            omp_unset_lock(edgeLock);
                         }//priv escalation
                     }//check each exploit on the neighbor                      
                 }//case 3
@@ -692,16 +698,39 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
             }//must be a connected neighbor
         }//check each neighbor
         
-        omp_set_lock(myLock);
+        //omp_set_lock(myLock);
+        int half=1;
+        int minS=3;
         if(fifo_curr_size(localQueue)){
-            omp_unset_lock(myLock);
+            //omp_unset_lock(myLock);
             goto expanding_loop;
         }
         else{
-            omp_unset_lock(myLock);
+            //omp_unset_lock(myLock);
+            /*int numStolen = 0;
+            unsigned int idBuf[half];
+            for(int m=1; m<numThreads*5; m++){
+                omp_set_lock(&threadLocks[(threadID+m)%numThreads]);
+                if(fifo_curr_size(&threadQueues[(threadID+m)%numThreads])>=minS){
+                    for(int n=0; n<half; n++){
+                        fifo_read(&threadQueues[(threadID+m)%numThreads], &idBuf[n]);
+                    }
+                    numStolen=half;
+                }
+                omp_unset_lock(&threadLocks[(threadID+m)%numThreads]);
+                if(numStolen>0){
+                    omp_set_lock(myLock);
+                    for(int n=0; n<numStolen; n++) fifo_write(localQueue, idBuf[n]);
+                    omp_unset_lock(myLock);
+                    break;
+                }
+            }
+            if(numStolen==0) goto finish;
+            else goto expanding_loop;*/
         }
+        finish:;
 
-        free(localQueue);
+        //free(localQueue);
         free(addr);
         free(addr2);        
     }//OpenMP ends 
@@ -722,12 +751,24 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
     free(eLock);
     free(labelLock);
     free(threadLocks);
-    free(numExpansions);   
+    free(numExpansions);
+    free(threadQueues);   
 
     gettimeofday(&c_end, NULL);
     double tParallel=(c_end.tv_sec-c_middle.tv_sec)+(c_end.tv_usec-c_middle.tv_usec)/1000000.0;
     double tdiff=(c_end.tv_sec-c_start.tv_sec)+(c_end.tv_usec-c_start.tv_usec)/1000000.0;
     printf(">>>>>> Parallel execution took %lf seconds\n", tParallel);
+
+    struct timeval s1,e1;
+    gettimeofday(&s1, NULL);
+    #pragma omp parallel for num_threads(numThreads) schedule(static,1)
+    for(long i=0; i<2000000000; i++){
+        long b=i*i*i*i*i;
+    }
+    gettimeofday(&e1, NULL);
+    double td= e1.tv_sec-s1.tv_sec + (e1.tv_usec-s1.tv_usec)/1000000.0;
+    printf(">>>>>> td is %lf seconds\n", td);
+
 
     printf("\n");
     printf(">>>>>> From C: Number of nodes in the AG is %d\n", (*node_cnt));
