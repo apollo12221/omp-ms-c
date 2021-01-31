@@ -778,11 +778,6 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
     double td= e1.tv_sec-s1.tv_sec + (e1.tv_usec-s1.tv_usec)/1000000.0;
     printf(">>>>>> td is %lf seconds\n", td);*/
 
-    for(int i=0; i<cont_cnt; i++){
-        if(i!=docker_host_name) topo[i*cont_cnt+i]=0;        
-    }    
-
-
     printf("\n");
     printf(">>>>>> From C: Number of nodes in the AG is %d\n", (*node_cnt));
     printf(">>>>>> From C: Number of edges in the AG is %d\n", (*edge_cnt));
