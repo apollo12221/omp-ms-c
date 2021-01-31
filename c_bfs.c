@@ -407,6 +407,7 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
 
     omp_lock_t *edgeDirLock = (omp_lock_t *)malloc(sizeof(omp_lock_t));
     omp_init_lock(edgeDirLock); //define a lock for OpenMP threads to write to shared data structures    
+
     omp_lock_t *labelLock = (omp_lock_t *)malloc(sizeof(omp_lock_t));
     omp_init_lock(labelLock); //define a lock for OpenMP threads to write to shared data structures
 
@@ -433,9 +434,7 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
         for(int fcnt=threadID; fcnt<fifo_curr_size(masterQueue); fcnt+=numThreads){
             unsigned int initID;
             fifo_idx_read(masterQueue, fcnt, &initID);
-            omp_set_lock(myLock);
             fifo_write(localQueue, initID);
-            omp_unset_lock(myLock);
         }
         
         unsigned int curr_node_id;
@@ -480,24 +479,19 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
                     unsigned int newNodeID;
                     omp_set_lock(nodeLock);
                     if(nodeHashing(nvalue,nodeTable,addr)==0){
-                        omp_unset_lock(nodeLock);
-                        omp_set_lock(nLock);
                         newNodeID = ++(*node_cnt);
-                        omp_unset_lock(nLock);
-                        omp_set_lock(nodeLock);
                         nodeTable[*addr].hashNum=nvalue;// update node hashtable
                         nodeTable[*addr].ID=newNodeID;
                         omp_unset_lock(nodeLock);
                         node_name[newNodeID]=ncnt;
                         node_priv[newNodeID]=4;
-                        omp_set_lock(myLock);
                         fifo_write(localQueue, newNodeID);//?
-                        omp_unset_lock(myLock);
                     }
                     else{
                         omp_unset_lock(nodeLock);
                         newNodeID = nodeTable[*addr].ID;
                     }
+
                     unsigned int curr_edge_val = edgeEncoding(curr_node_id, newNodeID);
                     omp_set_lock(edgeLock);
                     if(nodeHashing(curr_edge_val, edgeTable, addr2)==0){
@@ -552,24 +546,19 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
                     unsigned int newNodeID;
                     omp_set_lock(nodeLock);
                     if(nodeHashing(nvalue, nodeTable, addr)==0){
-                        omp_unset_lock(nodeLock);
-                        omp_set_lock(nLock);
                         newNodeID = ++(*node_cnt); 
-                        omp_unset_lock(nLock);
-                        omp_set_lock(nodeLock);
                         nodeTable[*addr].hashNum=nvalue;// update node hashtable
                         nodeTable[*addr].ID=newNodeID;
                         omp_unset_lock(nodeLock);
                         node_name[newNodeID]=ncnt;
                         node_priv[newNodeID]=4;
-                        omp_set_lock(myLock);
                         fifo_write(localQueue, newNodeID);
-                        omp_unset_lock(myLock);
                     }
                     else{
                         omp_unset_lock(nodeLock);
                         newNodeID = nodeTable[*addr].ID;
-                    }                      
+                    }
+                      
                     unsigned int curr_edge_val = edgeEncoding(curr_node_id, newNodeID);
                     omp_set_lock(edgeLock);
                     if(nodeHashing(curr_edge_val, edgeTable, addr2)==0){
@@ -779,7 +768,7 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
     double tdiff=(c_end.tv_sec-c_start.tv_sec)+(c_end.tv_usec-c_start.tv_usec)/1000000.0;
     printf(">>>>>> Parallel execution took %lf seconds\n", tParallel);
 
-    struct timeval s1,e1;
+    /*struct timeval s1,e1;
     gettimeofday(&s1, NULL);
     #pragma omp parallel for num_threads(numThreads) schedule(static,1)
     for(long i=0; i<2000000000; i++){
@@ -787,7 +776,11 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
     }
     gettimeofday(&e1, NULL);
     double td= e1.tv_sec-s1.tv_sec + (e1.tv_usec-s1.tv_usec)/1000000.0;
-    printf(">>>>>> td is %lf seconds\n", td);
+    printf(">>>>>> td is %lf seconds\n", td);*/
+
+    for(int i=0; i<cont_cnt; i++){
+        if(i!=docker_host_name) topo[i*cont_cnt+i]=0;        
+    }    
 
 
     printf("\n");

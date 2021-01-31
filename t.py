@@ -140,7 +140,7 @@ class MyTest(unittest.TestCase):
 
         # Preparing the data for testing
         example_folder = os.path.join(os.getcwd(), "50_example")
-        #scalability_test_helper(example_folder)
+        scalability_test_helper(example_folder)
 
     def test_scalability_100(self):
         """Doing scalability testing of samba and phpmailer example. It has
@@ -170,7 +170,7 @@ class MyTest(unittest.TestCase):
 
         # Preparing the data for testing
         example_folder = os.path.join(os.getcwd(), "1000_example")
-        scalability_test_helper(example_folder)
+        #scalability_test_helper(example_folder)
 
 if __name__ == "__main__":
     print("Testing the attack graph generator...")
