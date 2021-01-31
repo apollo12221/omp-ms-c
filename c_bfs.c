@@ -779,7 +779,7 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
     double tdiff=(c_end.tv_sec-c_start.tv_sec)+(c_end.tv_usec-c_start.tv_usec)/1000000.0;
     printf(">>>>>> Parallel execution took %lf seconds\n", tParallel);
 
-    struct timeval s1,e1;
+    /*struct timeval s1,e1;
     gettimeofday(&s1, NULL);
     #pragma omp parallel for num_threads(numThreads) schedule(static,1)
     for(long i=0; i<2000000000; i++){
@@ -787,13 +787,16 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
     }
     gettimeofday(&e1, NULL);
     double td= e1.tv_sec-s1.tv_sec + (e1.tv_usec-s1.tv_usec)/1000000.0;
-    printf(">>>>>> td is %lf seconds\n", td);
+    printf(">>>>>> td is %lf seconds\n", td);*/
 
 
     printf("\n");
     printf(">>>>>> From C: Number of nodes in the AG is %d\n", (*node_cnt));
     printf(">>>>>> From C: Number of edges in the AG is %d\n", (*edge_cnt));
-    printf(">>>>>> From C: Total Expansion Time: %lf seconds\n", tdiff);
+    printf("**************************************************************************\n");
+    printf("****** Breadth-First-Search by the C program took: %lf seconds****\n", tdiff);
+    printf("**************************************************************************\n");
+    printf(">>>>>> From C: Done\n");
     printf("\n\n");
     return edge_label;
 }
