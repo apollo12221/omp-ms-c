@@ -433,9 +433,9 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
         for(int fcnt=threadID; fcnt<fifo_curr_size(masterQueue); fcnt+=numThreads){
             unsigned int initID;
             fifo_idx_read(masterQueue, fcnt, &initID);
-            omp_set_lock(myLock);
+            //omp_set_lock(myLock);
             fifo_write(localQueue, initID);
-            omp_unset_lock(myLock);
+            //omp_unset_lock(myLock);
         }
         
         unsigned int curr_node_id;
@@ -490,9 +490,9 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
                         omp_unset_lock(nodeLock);
                         node_name[newNodeID]=ncnt;
                         node_priv[newNodeID]=4;
-                        omp_set_lock(myLock);
+                        //omp_set_lock(myLock);
                         fifo_write(localQueue, newNodeID);//?
-                        omp_unset_lock(myLock);
+                        //omp_unset_lock(myLock);
                     }
                     else{
                         omp_unset_lock(nodeLock);
@@ -562,9 +562,9 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
                         omp_unset_lock(nodeLock);
                         node_name[newNodeID]=ncnt;
                         node_priv[newNodeID]=4;
-                        omp_set_lock(myLock);
+                        //omp_set_lock(myLock);
                         fifo_write(localQueue, newNodeID);
-                        omp_unset_lock(myLock);
+                        //omp_unset_lock(myLock);
                     }
                     else{
                         omp_unset_lock(nodeLock);
@@ -719,8 +719,8 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
         }//check each neighbor
         
         //omp_set_lock(myLock);
-        int half=1;
-        int minS=3;
+        //int half=1;
+        //int minS=3;
         if(fifo_curr_size(localQueue)){
             //omp_unset_lock(myLock);
             goto expanding_loop;
