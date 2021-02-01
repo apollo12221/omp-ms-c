@@ -434,9 +434,9 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
         for(int fcnt=threadID; fcnt<fifo_curr_size(masterQueue); fcnt+=numThreads){
             unsigned int initID;
             fifo_idx_read(masterQueue, fcnt, &initID);
-            omp_set_lock(myLock);
+            //omp_set_lock(myLock);
             fifo_write(localQueue, initID);
-            omp_unset_lock(myLock);
+            //omp_unset_lock(myLock);
         }
         
         unsigned int curr_node_id;
@@ -653,9 +653,9 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
                                     omp_unset_lock(nodeLock);
                                     node_name[newNodeID]=ncnt;
                                     node_priv[newNodeID]=post_priv[ex_idx];
-                                    omp_set_lock(myLock);
+                                    //omp_set_lock(myLock);
                                     fifo_write(localQueue, newNodeID);
-                                    omp_unset_lock(myLock);
+                                    //omp_unset_lock(myLock);
                                 }
                                 else{
                                     omp_unset_lock(nodeLock);
@@ -711,14 +711,14 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
             }//must be a connected neighbor
         }//check each neighbor
         
-        int half=1;
-        int minS=3;
-        omp_set_lock(myLock);
+        //int half=1;
+        //int minS=3;
+        //omp_set_lock(myLock);
         if(fifo_curr_size(localQueue)){
-            omp_unset_lock(myLock);
+            //omp_unset_lock(myLock);
             goto expanding_loop;
         }
-        else{
+        /*else{
             omp_unset_lock(myLock);
             int numStolen = 0;
             unsigned int idBuf[half];
@@ -740,7 +740,7 @@ int *bfs(int *topo, int *num_ex, int *ex_names, int *pre_priv, int *post_priv, i
             }
             if(numStolen==0) goto finish;
             else goto expanding_loop;
-        }
+        }*/
         finish:;
 
         free(addr);
